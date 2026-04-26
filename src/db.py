@@ -28,7 +28,7 @@ def insert_video(channel_id: str, info: dict) -> dict:
         "title": info.get("title"),
         "description": info.get("description", "")[:2000],
         "upload_date": info.get("upload_date_iso"),
-        "duration": info.get("duration"),
+        "duration": int(info["duration"]) if info.get("duration") is not None else None,
         "status": "new",
     }
     return get_client().table("videos").insert(row).execute().data[0]
