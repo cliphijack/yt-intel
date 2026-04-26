@@ -44,29 +44,33 @@ def process_channel(channel: dict):
         existing = db.video_exists(vid)
 
         if not existing:
-            print(f"[poller] NEW video: {v['title'][:60]}")
-            # Insert with basic info first (from flat list)
-            row = db.insert_video(channel["id"], v)
-            db.update_video_status(vid, "tracking")
+            age_h = hours_since(v.get("upload_date_iso"))
+            is_recent = age_h <= TRACKING_HOURS or age_h == 0  # 72h 이내 or 날짜 미확인
 
-            # Try to get full details + comments (may fail due to bot detection)
-            try:
-                detail = collector.get_video_detail(vid, max_comments=200)
-                db.insert_snapshot(row["id"], detail)
-                db.insert_comments(row["id"], detail.get("comments", []))
-                comment_count = len(detail.get("comments", []))
-                view_count = detail.get("view_count", 0)
-            except Exception as e:
-                print(f"[poller] Detail fetch failed (bot detection?): {e}")
-                comment_count = 0
-                view_count = 0
+            if is_recent:
+                print(f"[poller] NEW video (recent): {v['title'][:60]}")
+                row = db.insert_video(channel["id"], v)
+                db.update_video_status(vid, "tracking")
 
-            notifier.send_telegram(
-                f"🎬 <b>새 영상 감지</b>\n"
-                f"채널: {handle}\n"
-                f"제목: {v['title']}\n"
-                f"https://www.youtube.com/watch?v={vid}"
-            )
+                # Try to get full details + comments (may fail due to bot detection)
+                try:
+                    detail = collector.get_video_detail(vid, max_comments=200)
+                    db.insert_snapshot(row["id"], detail)
+                    db.insert_comments(row["id"], detail.get("comments", []))
+                except Exception as e:
+                    print(f"[poller] Detail fetch failed: {e}")
+
+                notifier.send_telegram(
+                    f"🎬 <b>새 영상 감지</b>\n"
+                    f"채널: {handle}\n"
+                    f"제목: {v['title']}\n"
+                    f"https://www.youtube.com/watch?v={vid}"
+                )
+            else:
+                # 오래된 영상 - 조용히 DB에 archived로 저장
+                print(f"[poller] OLD video (skip notify, age {age_h:.0f}h): {v['title'][:40]}")
+                row = db.insert_video(channel["id"], v)
+                db.update_video_status(vid, "archived")
         else:
             age_h = hours_since(existing.get("first_seen_at"))
             if existing["status"] == "tracking":
