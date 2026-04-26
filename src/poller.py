@@ -45,17 +45,26 @@ def process_channel(channel: dict):
 
         if not existing:
             print(f"[poller] NEW video: {v['title'][:60]}")
-            detail = collector.get_video_detail(vid, max_comments=200)
-            row = db.insert_video(channel["id"], detail)
-            db.insert_snapshot(row["id"], detail)
-            db.insert_comments(row["id"], detail.get("comments", []))
+            # Insert with basic info first (from flat list)
+            row = db.insert_video(channel["id"], v)
             db.update_video_status(vid, "tracking")
+
+            # Try to get full details + comments (may fail due to bot detection)
+            try:
+                detail = collector.get_video_detail(vid, max_comments=200)
+                db.insert_snapshot(row["id"], detail)
+                db.insert_comments(row["id"], detail.get("comments", []))
+                comment_count = len(detail.get("comments", []))
+                view_count = detail.get("view_count", 0)
+            except Exception as e:
+                print(f"[poller] Detail fetch failed (bot detection?): {e}")
+                comment_count = 0
+                view_count = 0
 
             notifier.send_telegram(
                 f"🎬 <b>새 영상 감지</b>\n"
                 f"채널: {handle}\n"
-                f"제목: {detail['title']}\n"
-                f"조회수: {detail['view_count']:,} | 댓글: {len(detail['comments'])}개\n"
+                f"제목: {v['title']}\n"
                 f"https://www.youtube.com/watch?v={vid}"
             )
         else:
@@ -66,8 +75,11 @@ def process_channel(channel: dict):
                     db.update_video_status(vid, "archived")
                 else:
                     print(f"[poller] SNAPSHOT: {vid} (age {age_h:.1f}h)")
-                    detail = collector.get_video_detail(vid, max_comments=0)
-                    db.insert_snapshot(existing["id"], detail)
+                    try:
+                        detail = collector.get_video_detail(vid, max_comments=0)
+                        db.insert_snapshot(existing["id"], detail)
+                    except Exception as e:
+                        print(f"[poller] Snapshot failed: {e}")
 
 
 def main():
